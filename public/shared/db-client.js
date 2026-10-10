@@ -148,7 +148,7 @@
             if (!ops.length) return;
             this.base = copy(next);
             this.queue.push(ops);
-            this._drain();
+            if (!this.running) this.pendingDrain = this._drain();
         }
         async _drain() {
             if (this.running) return;
@@ -178,6 +178,20 @@
             const result = await request('/api/tournament/withdraw',{tournamentId});
             this._accept(result);
             return result;
+        }
+        async serverAction(endpoint, payload) {
+            if (this.pendingDrain) await this.pendingDrain;
+            try {
+                const data = await request(endpoint, payload);
+                this._accept(data);
+                return data;
+            } catch (e) {
+                message('Action not saved: '+e.message);
+                // Bring other clients' accepted edits into view without applying
+                // an outdated local snapshot over the current server state.
+                await this.refresh(true);
+                throw e;
+            }
         }
         async auth(endpoint, body) { return request(endpoint,body); }
         async chat(matchId, text) { await request('/api/chat/send',{matchId,text}); await this.refresh(true); }
