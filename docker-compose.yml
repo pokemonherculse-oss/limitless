@@ -1,0 +1,14 @@
+services:
+  limitless:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+      PORT: "8000"
+      LIMITLESS_EXCEL_PATH: /data/limitless.xlsx
+    volumes:
+      - ./data:/data
