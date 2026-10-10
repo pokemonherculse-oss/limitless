@@ -19,11 +19,14 @@
     const key = (obj, keys) => keys.map(k => String(obj[k])).join(':');
     const diffs = (before, after, path = []) => {
         if (path[path.length - 1] === 'chat') return []; // temporary battle messages are never persisted
+        // Check equality before the entry shortcut: otherwise each registration
+        // resends every other player's unchanged entry, which the server rightly
+        // rejects as an unauthorized cross-player edit.
+        if (equal(before, after)) return [];
         if (path.length === 4 && path[0] === 'tournaments' && path[2] === 'entries') {
             if (after === undefined) return [{op:'delete',path,before:before===undefined?null:before}];
             return [{op:'set',path,value:after,before:before===undefined?null:before}];
         }
-        if (equal(before, after)) return [];
         if (isObject(after) && (isObject(before) || before === undefined)) {
             const result = [];
             const a = isObject(before) ? before : {};
