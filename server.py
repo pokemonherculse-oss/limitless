@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from github_excel import GitHubExcel, GitHubStorageError
+from tournament_engine import advance, finish, standings, find_active, last_round
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / 'public'
@@ -483,6 +484,7 @@ def visible_chat_state(state, role, pid):
 
 def commit_state(new_state):
     global STATE, REVISION
+    standings(new_state)
     clean_chat(new_state)
     compact_completed_tournaments(new_state)
     rev = REVISION + 1
@@ -501,6 +503,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'strict-origin-when-cross-origin')
         if self.path.startswith('/api/'):
             self.send_header('Cache-Control', 'no-store')
+        elif self.path.endswith(('.html','.js')) or '.js?' in self.path:
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
         super().end_headers()
 
     def send_json(self, obj, status=200, cookie=None):
@@ -533,7 +537,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(self.state_response())
             return
         if route == '/api/health':
-            self.send_json({'status':'ok', 'storage':'github-excel' if REMOTE_EXCEL else 'local-excel', 'registrationFix':'atomic-v2'})
+            self.send_json({'status':'ok', 'storage':'github-excel' if REMOTE_EXCEL else 'local-excel', 'registrationFix':'atomic-v3', 'tournamentEngine':'server-v3', 'standings':'round-buchholz-v1'})
             return
         if route == '/api/export':
             with LOCK:
@@ -652,6 +656,111 @@ class Handler(SimpleHTTPRequestHandler):
                         entries.pop(str(pid), None)
                     if new != STATE:
                         commit_state(new)
+                    return self.send_json(self.state_response())
+                # Atomic match updates: apply to the latest server state, never
+                # replay an outdated client's copy of the whole tournament.
+                if route == '/api/match/action':
+                    action = payload.get('action')
+                    tid = payload.get('tournamentId')
+                    mid = payload.get('matchId')
+                    if role not in ('admin','player'):
+                        return self.send_json({'error':'Login required'},401)
+                    if action not in ('checkin','result','reset','drop','addTime','resolveReport','joinReport'):
+                        return self.send_json({'error':'Invalid match action'},400)
+                    new = json_clone(STATE)
+                    t = find_active(new, tid)
+                    rnd = last_round(t)
+                    if action == 'addTime':
+                        if role != 'admin' or not rnd:
+                            return self.send_json({'error':'Admin round access required'},403)
+                        minutes = payload.get('minutes')
+                        if not isinstance(minutes,int) or not 1 <= minutes <= 60:
+                            return self.send_json({'error':'Invalid additional minutes'},400)
+                        t['roundEndTime'] = max(int(time.time()*1000),t.get('roundEndTime') or 0) + minutes*60000
+                    elif action == 'drop':
+                        if role != 'player':
+                            return self.send_json({'error':'Player login required'},403)
+                        d=next((x for x in new['activeTournamentData'] if str(x.get('playerId'))==str(pid) and str(x.get('tournamentId'))==str(t['id'])), None)
+                        if not d:
+                            return self.send_json({'error':'Not registered for this tournament'},403)
+                        if d.get('dropped'):
+                            return self.send_json(self.state_response())
+                        d['dropped']=True
+                        if rnd and not rnd.get('processed'):
+                            m=next((m for m in rnd['matches'] if pid in (m.get('p1'),m.get('p2'))),None)
+                            if m and m.get('p2') is not None and not m.get('winner'):
+                                m['winner']='p2' if m['p1']==pid else 'p1'
+                                m['forfeit']=True
+                    else:
+                        if not rnd or rnd.get('processed'):
+                            return self.send_json({'error':'This round is closed'},409)
+                        m=next((m for m in rnd['matches'] if m.get('matchId')==mid),None)
+                        if not m or m.get('p2') is None:
+                            return self.send_json({'error':'Match not found'},404)
+                        if role=='player' and pid not in (m['p1'],m['p2']):
+                            return self.send_json({'error':'Not your match'},403)
+                        if action == 'checkin':
+                            if role != 'player':
+                                return self.send_json({'error':'Player login required'},403)
+                            if m.get('winner'):
+                                return self.send_json({'error':'Match already decided'},409)
+                            if m.get('checkInDeadline') and int(time.time()*1000)>m['checkInDeadline']:
+                                return self.send_json({'error':'Check-in time has ended'},409)
+                            m['p1CheckIn' if m['p1']==pid else 'p2CheckIn']=True
+                        elif action == 'result':
+                            result=payload.get('result')
+                            if role=='player':
+                                if result not in ('win','loss'):
+                                    return self.send_json({'error':'Invalid result'},400)
+                                if m.get('winner'):
+                                    return self.send_json({'error':'Result already submitted; ask admin to reset it'},409)
+                                win_first=(m['p1']==pid) == (result=='win')
+                                m['winner']='p1' if win_first else 'p2'
+                            else:
+                                if result not in ('p1','p2','draw') or result=='draw' and rnd['phase']=='TOP_CUT':
+                                    return self.send_json({'error':'Invalid bracket winner'},400)
+                                if m.get('winner') and m['winner'] not in ('draw','noshow'):
+                                    return self.send_json({'error':'Reset the result before changing it'},409)
+                                m['winner']=result
+                            m.pop('noShow',None)
+                        elif action in ('resolveReport','joinReport'):
+                            if role != 'admin':
+                                return self.send_json({'error':'Admin login required'},403)
+                            report=m.get('report')
+                            if not isinstance(report,dict):
+                                return self.send_json({'error':'Report not found'},404)
+                            if action=='joinReport':
+                                report['adminJoined']=True
+                            else:
+                                if report.get('status')!='OPEN':
+                                    return self.send_json({'error':'Report already resolved'},409)
+                                result=payload.get('result')
+                                if result not in ('p1','p2','draw','dismiss') or result=='draw' and rnd['phase']=='TOP_CUT':
+                                    return self.send_json({'error':'Invalid report decision'},400)
+                                if result!='dismiss':
+                                    if rnd.get('processed'):
+                                        return self.send_json({'error':'Round is already finalized'},409)
+                                    m['winner']=result
+                                    m['forfeit']=False
+                                    m['noShow']=False
+                                report.update(status='RESOLVED',resolution=payload.get('resolution') or ('Report dismissed.' if result=='dismiss' else 'Admin decision: '+str(result)),resolvedTs=int(time.time()*1000))
+                        elif action == 'reset':
+                            if role != 'admin':
+                                return self.send_json({'error':'Admin login required'},403)
+                            m.update(winner=None,forfeit=False,noShow=False,checkInDeadline=int(time.time()*1000)+int(t.get('checkInMinutes') or 5)*60_000)
+                    if new != STATE:
+                        commit_state(new)
+                    return self.send_json(self.state_response())
+                if route in ('/api/tournament/advance','/api/tournament/finish'):
+                    if role != 'admin':
+                        return self.send_json({'error':'Admin login required'},403)
+                    new=json_clone(STATE)
+                    tid=payload.get('tournamentId')
+                    if route.endswith('/advance'):
+                        advance(new,payload.get('action'),tid)
+                    else:
+                        finish(new,tid,payload.get('force') is True)
+                    commit_state(new)
                     return self.send_json(self.state_response())
                 if route == '/api/chat/send':
                     global CHAT_REVISION
