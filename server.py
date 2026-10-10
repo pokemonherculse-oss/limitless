@@ -533,7 +533,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json(self.state_response())
             return
         if route == '/api/health':
-            self.send_json({'status':'ok', 'storage':'github-excel' if REMOTE_EXCEL else 'local-excel'})
+            self.send_json({'status':'ok', 'storage':'github-excel' if REMOTE_EXCEL else 'local-excel', 'registrationFix':'atomic-v2'})
             return
         if route == '/api/export':
             with LOCK:
@@ -611,6 +611,48 @@ class Handler(SimpleHTTPRequestHandler):
                         next(p for p in new['players'] if p['id']==player['id'])['passwordHash'] = password_hash(password)
                         commit_state(new)
                     return self.send_json({'ok':True},cookie=f'limitless_session={signed_session("player",player["id"])}; Path=/; HttpOnly; SameSite=Lax'+('; Secure' if self.headers.get('X-Forwarded-Proto')=='https' else ''))
+                # Registration must be an atomic, authenticated server action.
+                # Do not let an out-of-date browser resubmit or modify another
+                # player's tournament entry through the generic patch endpoint.
+                if route in ('/api/tournament/register', '/api/tournament/withdraw'):
+                    if role != 'player':
+                        return self.send_json({'error':'Player login required'},401)
+                    tid = payload.get('tournamentId')
+                    if not isinstance(tid, (str, int)) or isinstance(tid, bool):
+                        return self.send_json({'error':'Invalid tournament'},400)
+                    new = json_clone(STATE)
+                    tournament = next((t for t in new['tournaments'] if str(t.get('id')) == str(tid)), None)
+                    if tournament is None:
+                        return self.send_json({'error':'Tournament not found'},404)
+                    if tournament.get('status') != 'UPCOMING' or not tournament.get('registrationOpen'):
+                        return self.send_json({'error':'Registration is closed'},409)
+                    roster = tournament.setdefault('registeredPlayers', [])
+                    entries = tournament.setdefault('entries', {})
+                    if not isinstance(roster, list) or not isinstance(entries, dict):
+                        return self.send_json({'error':'Tournament registration data is invalid'},409)
+                    if route == '/api/tournament/register':
+                        entry = payload.get('entry')
+                        if not isinstance(entry, dict):
+                            return self.send_json({'error':'Invalid registration entry'},400)
+                        ign = entry.get('ign')
+                        if not isinstance(ign, str) or not ign.strip() or len(ign.strip()) > 30:
+                            return self.send_json({'error':'In-game name must contain 1-30 characters'},400)
+                        # Existing team format remains intact for the tournament UI.
+                        if not isinstance(entry.get('teamUrl', ''), str) or not isinstance(entry.get('teamText', ''), str) or not isinstance(entry.get('team', []), list):
+                            return self.send_json({'error':'Invalid team entry'},400)
+                        if len(json.dumps(entry)) > 16000:
+                            return self.send_json({'error':'Registration entry too large'},400)
+                        clean_entry = json_clone(entry)
+                        clean_entry['ign'] = ign.strip()
+                        if pid not in roster:
+                            roster.append(pid)
+                        entries[str(pid)] = clean_entry
+                    else:
+                        roster[:] = [member for member in roster if str(member) != str(pid)]
+                        entries.pop(str(pid), None)
+                    if new != STATE:
+                        commit_state(new)
+                    return self.send_json(self.state_response())
                 if route == '/api/chat/send':
                     global CHAT_REVISION
                     text = payload.get('text')
