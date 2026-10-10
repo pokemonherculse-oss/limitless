@@ -294,6 +294,7 @@ function renderRegistration() {
         const entry = (t.entries && t.entries[loggedInPlayerId]) || {};
         const details = [
             t.date ? esc(t.date) + (t.checkInTime ? ' @ ' + esc(t.checkInTime) : '') : '',
+            `Check-in: ${t.checkInMinutes || 5} minutes per pairing`,
             `Swiss Rounds: ${t.totalRounds}`,
             t.roundTime ? `${t.roundTime} min rounds` : '',
             t.topCut ? `Top ${t.topCut}` : '',
@@ -344,53 +345,31 @@ function pendingMatch(m, phase) {
     return !m.winner || (phase === 'TOP_CUT' && m.winner === 'draw');
 }
 
-window.reportScore = function (matchId, result) {
-    reloadDB();
-    const t = getActive();
-    const r = lastRoundOf(t);
-    const m = r && r.matches.find(x => x.matchId === matchId);
-    if (!m || m.p2 === null) return;
-    if (m.p1 !== loggedInPlayerId && m.p2 !== loggedInPlayerId) return;
-    if (r.processed) { alert("This round has already been finalized."); return renderActiveTournament(); }
-    if (m.winner) { alert("A result has already been reported for this match. Ask the admin if it needs to be changed."); return renderActiveTournament(); }
-
-    const isP1 = (m.p1 === loggedInPlayerId);
-    if (result === 'win') m.winner = isP1 ? 'p1' : 'p2';
-    if (result === 'loss') m.winner = isP1 ? 'p2' : 'p1';
-    saveDB();
-    renderActiveTournament();
+window.reportScore = async function(matchId,result) {
+    const t=getActive(); if(!t) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{action:'result',tournamentId:t.id,matchId,result});
+        renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
-window.checkIn = function () {
-    reloadDB();
-    const r = lastRoundOf(getActive());
-    const m = r && r.matches.find(x => x.p1 === loggedInPlayerId || x.p2 === loggedInPlayerId);
-    if (!m) return;
-    if (m.p1 === loggedInPlayerId) m.p1CheckIn = true; else m.p2CheckIn = true;
-    saveDB();
-    renderActiveTournament();
+window.checkIn = async function() {
+    const t=getActive(),r=lastRoundOf(t);
+    const m=r&&r.matches.find(x=>x.p1===loggedInPlayerId||x.p2===loggedInPlayerId);
+    if(!t || !m) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{action:'checkin',tournamentId:t.id,matchId:m.matchId});
+        renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
-window.dropFromTournament = function () {
-    reloadDB();
-    const t = getActive();
-    const d = t && myDataOf();
-    if (!t || !d) return alert("You are not part of an active tournament.");
-    if (d.dropped) return;
-    if (!confirm("Drop from the tournament? This cannot be undone.")) return;
-
-    reloadDB();
-    const t2 = getActive();
-    const d2 = t2 && myDataOf();
-    if (!t2 || !d2 || d2.dropped) return renderActiveTournament();
-    d2.dropped = true;
-
-    // A pending match is forfeited: the opponent is awarded the win.
-    const r = lastRoundOf(t2);
-    const m = r && !r.processed && r.matches.find(x => (x.p1 === loggedInPlayerId || x.p2 === loggedInPlayerId));
-    if (m && m.p2 !== null && pendingMatch(m, r.phase)) m.winner = (m.p1 === loggedInPlayerId) ? 'p2' : 'p1';
-    saveDB();
-    renderActiveTournament();
+window.dropFromTournament = async function() {
+    const t=getActive(); if(!t || !myDataOf() || myDataOf().dropped) return;
+    if(!confirm('Drop from the tournament? This cannot be undone.')) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{action:'drop',tournamentId:t.id});
+        renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
 window.selectPairingRound = function (i) {
@@ -401,6 +380,33 @@ window.selectPairingRound = function (i) {
 };
 
 function roundLabel(r) { return r.phase === 'SWISS' ? `R${r.round}` : String(r.round); }
+
+function updateCheckInClock() {
+    const t=getActive(), r=lastRoundOf(t);
+    const m=r && r.matches.find(x=>x.p1===loggedInPlayerId||x.p2===loggedInPlayerId);
+    const deadline=m?.checkInDeadline;
+    const ended=!!m?.winner || r?.processed;
+    let text='';
+    if(m && m.p2!==null) {
+        if(ended) text='Check-in closed — match result recorded';
+        else if(m.p1CheckIn && m.p2CheckIn) text='Both players checked in — battle ready';
+        else if(deadline) {
+            const seconds=Math.max(0,Math.ceil((deadline-Date.now())/1000));
+            const clock=new Date(deadline).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+            text=seconds===0 ? `Check-in ended at ${clock}` : `Check-in time left: ${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')} · Deadline ${clock}`;
+        } else text='Check-in deadline not set';
+    }
+    for (const id of ['checkin-deadline','checkin-deadline-pairings']) {
+        const el=$(id);
+        if(el && el.textContent!==text) el.textContent=text;
+    }
+    const btn=$('checkin-btn');
+    if(btn && m) {
+        const checked=m.p1===loggedInPlayerId ? m.p1CheckIn:m.p2CheckIn;
+        btn.disabled=!!checked||ended||!!deadline&&Date.now()>=deadline;
+    }
+}
+setInterval(updateCheckInClock,1000);
 
 function updateRoundBanner() {
     const t = getActive();
@@ -495,6 +501,7 @@ function renderBattle(activeT, currentPairings) {
         ci.classList.toggle('cursor-not-allowed', !!myChecked);
     }
     if ($('checkin-status')) $('checkin-status').innerText = oppChecked ? 'Opponent is checked in' : 'Waiting for opponent to check in';
+    updateCheckInClock();
 
     if (myMatch.winner) {
         lockBattle(true);
@@ -544,7 +551,7 @@ function renderActiveTournament() {
     // Leaderboard
     const tbody = $('active-tbody');
     if (tbody) {
-        const sorted = [...(db.activeTournamentData || [])].sort((a, b) => (b.points - a.points) || (b.wins - a.wins));
+        const sorted = [...(db.activeTournamentData || [])].sort((a,b) => a.position-b.position);
         let html = '';
         sorted.forEach((d, index) => {
             const p = db.players.find(pl => pl.id === d.playerId);
@@ -552,7 +559,7 @@ function renderActiveTournament() {
             const isMe = p.id === loggedInPlayerId;
             const rowClass = isMe ? 'bg-cyan-900/20 border-l-4 border-cyan-400' : 'border-l-4 border-transparent';
             const dropTag = d.dropped ? ' <span class="text-[9px] text-red-500 tracking-widest">DROPPED</span>' : '';
-            html += `<tr class="${rowClass}"><td class="px-6 py-4 font-bold text-gray-500 italic">${index + 1}</td><td class="px-6 py-4 font-bold tracking-widest uppercase ${isMe ? 'text-cyan-400' : 'text-gray-300'}">${esc(p.username)}${dropTag}</td><td class="px-6 py-4 font-mono text-white">${d.points} Pts (${d.wins}-${d.losses}-${d.draws})</td></tr>`;
+            html += `<tr class="${rowClass}"><td class="px-6 py-4 font-bold text-gray-500 italic">${index + 1}</td><td class="px-6 py-4 font-bold tracking-widest uppercase ${isMe ? 'text-cyan-400' : 'text-gray-300'}">${esc(p.username)}${dropTag}</td><td class="px-6 py-4 font-mono text-white">${d.points} Pts (${d.wins}-${d.losses}-${d.draws})<div class="text-[10px] text-gray-400 mt-1">Opp pts: ${d.tb||0} · Rounds: ${esc((d.roundResults||[]).join(' · ')||'Not started')}</div></td></tr>`;
         });
         if (tbody.dataset.html !== html) { tbody.dataset.html = html; tbody.innerHTML = html; }
     }
