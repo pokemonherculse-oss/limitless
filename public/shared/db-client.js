@@ -169,6 +169,16 @@
                 this.running = false;
             }
         }
+        async registerTournament(tournamentId, entry) {
+            const result = await request('/api/tournament/register',{tournamentId,entry});
+            this._accept(result);
+            return result;
+        }
+        async withdrawTournament(tournamentId) {
+            const result = await request('/api/tournament/withdraw',{tournamentId});
+            this._accept(result);
+            return result;
+        }
         async auth(endpoint, body) { return request(endpoint,body); }
         async chat(matchId, text) { await request('/api/chat/send',{matchId,text}); await this.refresh(true); }
     }
