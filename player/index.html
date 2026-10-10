@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limitless Player Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;700;800&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="cyber-bg text-white min-h-screen">
+    
+    <!-- AUTHENTICATION VIEW -->
+    <div id="auth-view" class="flex items-center justify-center min-h-screen">
+        <div class="cyber-box cyber-box-cyan p-8 w-96 text-center transition-all duration-500">
+            <div class="poke-ball" aria-hidden="true"></div>
+            <h1 class="text-3xl font-bold neon-text-cyan mb-6 tracking-widest uppercase italic">LIMITLESS</h1>
+            
+            <form id="login-form" onsubmit="return handleLogin(event)">
+                <input type="text" id="login-username" placeholder="USERNAME" required class="w-full mb-4 p-3 bg-black border border-cyan-900 text-cyan-400 focus:outline-none focus:border-cyan-400 font-mono tracking-widest transition-colors">
+                <input type="password" id="login-password" placeholder="PASSWORD" required class="w-full mb-6 p-3 bg-black border border-cyan-900 text-cyan-400 focus:outline-none focus:border-cyan-400 font-mono tracking-widest transition-colors">
+                <button type="submit" class="w-full bg-cyan-500/20 border border-cyan-400 text-cyan-400 font-bold tracking-widest uppercase py-3 hover:bg-cyan-400 hover:text-black transition-colors clip-edge">AUTHENTICATE</button>
+                <p class="mt-4 text-xs text-gray-500 cursor-pointer hover:text-cyan-400 tracking-widest uppercase transition-colors" onclick="toggleAuth()">New Operator? Register</p>
+            </form>
+
+            <form id="register-form" onsubmit="return handleRegister(event)" class="hidden">
+                <input type="text" id="reg-username" placeholder="NEW USERNAME" required class="w-full mb-4 p-3 bg-black border border-red-900 text-red-400 focus:outline-none focus:border-red-400 font-mono tracking-widest transition-colors">
+                <input type="password" id="reg-password" placeholder="NEW PASSWORD" required class="w-full mb-6 p-3 bg-black border border-red-900 text-red-400 focus:outline-none focus:border-red-400 font-mono tracking-widest transition-colors">
+                <button type="submit" class="w-full bg-red-500/20 border border-red-500 text-red-500 font-bold tracking-widest uppercase py-3 hover:bg-red-500 hover:text-black transition-colors clip-edge">INITIALIZE</button>
+                <p class="mt-4 text-xs text-gray-500 cursor-pointer hover:text-red-500 tracking-widest uppercase transition-colors" onclick="toggleAuth()">Existing Operator? Login</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="main-app" class="hidden flex h-screen overflow-hidden">
+        
+        <!-- Sidebar -->
+        <div id="sidebar" class="w-64 bg-black/80 border-r border-gray-800 flex flex-col hidden backdrop-blur-md relative z-20">
+            <div class="p-6 border-b border-gray-800 text-center relative overflow-hidden">
+                <div class="absolute inset-0 bg-cyan-900/10 pointer-events-none"></div>
+                <div id="avatar-initial" class="w-16 h-16 mx-auto bg-cyan-900/50 border-2 border-cyan-400 rounded-full flex items-center justify-center text-2xl font-bold text-cyan-400 mb-3 shadow-[0_0_15px_rgba(0,243,255,0.3)] relative z-10"></div>
+                <h2 id="display-username" class="font-bold tracking-widest uppercase text-gray-300 relative z-10 truncate">USER</h2>
+                <button onclick="logout()" class="mt-2 text-[10px] text-red-500 hover:text-red-400 tracking-widest uppercase relative z-10 transition-colors">Disconnect</button>
+            </div>
+            <div class="flex-1 p-4 space-y-2">
+                <button onclick="switchTab('profile', this)" class="nav-btn w-full text-left px-6 py-4 clip-edge bg-black text-gray-500 border border-gray-800 hover:border-gray-500 hover:text-white font-bold tracking-widest uppercase transition-all">Profile</button>
+                <button onclick="switchTab('active', this)" class="nav-btn w-full text-left px-6 py-4 clip-edge bg-cyan-500/20 text-cyan-400 border border-cyan-400 font-bold tracking-widest uppercase transition-all shadow-[0_0_15px_rgba(0,243,255,0.2)]">Tournament Area</button>
+                <button onclick="switchTab('history', this)" class="nav-btn w-full text-left px-6 py-4 clip-edge bg-black text-gray-500 border border-gray-800 hover:border-gray-500 hover:text-white font-bold tracking-widest uppercase transition-all">History</button>
+            </div>
+        </div>
+
+        <!-- Content Area -->
+        <div id="main-content" class="flex-1 overflow-y-auto p-8 hidden relative z-10">
+            
+            <!-- Profile Tab -->
+            <div id="profile" class="view-section hidden">
+                <h2 class="text-3xl font-bold italic tracking-widest uppercase border-b border-gray-800 pb-4 mb-6">Service Record</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="cyber-box p-6 border-l-4 border-l-cyan-400 text-center"><p class="text-gray-500 text-xs tracking-widest uppercase mb-2">Deployments</p><p id="stat-played" class="text-4xl font-bold text-white">0</p></div>
+                    <div class="cyber-box p-6 border-l-4 border-l-yellow-500 text-center"><p class="text-gray-500 text-xs tracking-widest uppercase mb-2">Victories</p><p id="stat-wins" class="text-4xl font-bold text-yellow-500">0</p></div>
+                    <div class="cyber-box p-6 border-l-4 border-l-gray-400 text-center"><p class="text-gray-500 text-xs tracking-widest uppercase mb-2">Runner-Ups</p><p id="stat-runnerups" class="text-4xl font-bold text-gray-400">0</p></div>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="history" class="view-section hidden">
+                <h2 class="text-3xl font-bold italic tracking-widest uppercase border-b border-gray-800 pb-4 mb-6">Played Tournaments</h2>
+                <div id="history-container"></div>
+            </div>
+
+            <!-- Active Tournament Area -->
+            <div id="active" class="view-section hidden">
+                
+                <!-- INACTIVE STATE: Past Tours -->
+                <div id="inactive-tour-view" class="w-full">
+                    <!-- JS Injects Past Tours Here -->
+                </div>
+
+                <!-- ACTIVE STATE: Live Tournament -->
+                <div id="active-tour-view" class="hidden">
+                    
+                    <!-- Live round banner -->
+                    <div class="cyber-box p-4 pb-8 mb-4 flex justify-between items-center border-l-4 border-l-cyan-400">
+                        <div id="round-banner-name" class="font-bold uppercase tracking-widest text-sm text-white"></div>
+                        <div id="round-banner-timer" class="font-mono text-2xl font-bold text-white tracking-widest">00:00</div>
+                        <div class="hp hp-bottom" id="round-hp" aria-hidden="true"><i></i></div>
+                    </div>
+
+                    <!-- Tournament tabs (shown once the tournament starts) -->
+                    <div class="flex flex-wrap gap-2 mb-6 pb-4 border-b border-gray-800 page-navigation-bar">
+                        <button class="page-nav-btn active" data-tab="pairings">Pairings</button>
+                        <button class="page-nav-btn" data-tab="leaderboard">Leaderboard</button>
+                        <button class="page-nav-btn" data-tab="battle">Battle</button>
+                        <button class="page-nav-btn danger-text" data-tab="drop">Drop</button>
+                    </div>
+
+                    <!-- NEW TAB CONTENTS -->
+                    <div class="page-tab-content">
+                        
+                        <!-- Pairings -->
+                        <div id="pairings-tab" class="page-tab active">
+                            <div id="rounds-nav" class="flex gap-2 mb-6 border-b border-gray-800 pb-4"></div>
+                            <div id="pairings-list" class="space-y-2"></div>
+                        </div>
+
+                        <!-- Leaderboard -->
+                        <div id="leaderboard-tab" class="page-tab">
+                            <table class="w-full text-left bg-black border border-gray-800">
+                                <thead>
+                                    <tr class="bg-cyan-900/20 text-cyan-400 tracking-widest text-xs uppercase border-b border-gray-800">
+                                        <th class="px-6 py-4">Rank</th>
+                                        <th class="px-6 py-4">Player</th>
+                                        <th class="px-6 py-4">Score</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="active-tbody">
+                                    <!-- Leaderboard renders here -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Battle Interface -->
+                        <div id="battle-tab" class="page-tab">
+                            <div id="battle-empty" class="hidden"></div>
+                            <div id="battle-match-view" class="cyber-box p-6 border border-gray-800 max-w-4xl mx-auto">
+                                <div class="bg-black border border-gray-800 p-4 mb-6 flex justify-between items-center gap-4">
+                                    <h3 id="battle-title" class="text-cyan-400 font-bold uppercase tracking-widest text-xs">Match</h3>
+                                    <div class="flex items-center gap-3 shrink-0">
+                                        <span id="checkin-status" class="text-[10px] text-gray-500 uppercase tracking-widest"></span>
+                                        <button id="checkin-btn" onclick="checkIn()" class="border border-cyan-400 text-cyan-400 px-4 py-1 text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-400 hover:text-black transition-colors">Check In</button>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex gap-4 mb-6">
+                                    <div class="flex-1 bg-black p-4 border border-gray-800 text-center relative overflow-hidden">
+                                        <div class="absolute inset-0 bg-cyan-900/10 pointer-events-none"></div>
+                                        <span id="battle-p1-name" class="block font-bold text-white uppercase tracking-widest text-xl mb-1">You</span>
+                                        <span id="battle-p1-record" class="text-cyan-400 text-xs uppercase tracking-widest"></span>
+                                    </div>
+                                    <div class="flex items-center text-red-500 font-bold italic text-2xl tracking-widest">VS</div>
+                                    <div class="flex-1 bg-black p-4 border border-gray-800 text-center relative overflow-hidden">
+                                        <span id="battle-p2-name" class="block font-bold text-white uppercase tracking-widest text-xl mb-1">Opponent</span>
+                                        <span id="battle-p2-record" class="text-cyan-400 text-xs uppercase tracking-widest"></span>
+                                    </div>
+                                </div>
+
+                                <div class="text-center mb-6 border-y border-gray-800 py-4">
+                                    <h3 id="current-score" class="text-4xl font-bold neon-text-cyan mb-2">-</h3>
+                                    <button id="reset-match-btn" class="text-gray-500 hover:text-red-500 text-[10px] uppercase tracking-[0.2em] transition-colors border border-gray-800 px-4 py-1 bg-black">Reset Match</button>
+                                </div>
+
+                                <div class="bg-black/50 p-4 border border-gray-800 mb-6">
+                                    <h4 class="text-gray-400 text-[10px] tracking-widest uppercase mb-4 text-center">Who won each game?</h4>
+                                    <div class="flex justify-center items-center mb-3">
+                                        <span class="w-20 text-gray-300 font-bold uppercase text-xs tracking-widest">Game 1</span>
+                                        <button class="g-btn border border-gray-700 px-6 py-2 text-xs text-gray-400 hover:border-cyan-400 mx-2 clip-edge" data-game="1" data-winner="p1">You</button>
+                                        <button class="g-btn border border-gray-700 px-6 py-2 text-xs text-gray-400 hover:border-cyan-400 clip-edge" data-game="1" data-winner="p2">Opponent</button>
+                                    </div>
+                                    <div class="flex justify-center items-center mb-3">
+                                        <span class="w-20 text-gray-300 font-bold uppercase text-xs tracking-widest">Game 2</span>
+                                        <button class="g-btn border border-gray-700 px-6 py-2 text-xs text-gray-400 hover:border-cyan-400 mx-2 clip-edge" data-game="2" data-winner="p1">You</button>
+                                        <button class="g-btn border border-gray-700 px-6 py-2 text-xs text-gray-400 hover:border-cyan-400 clip-edge" data-game="2" data-winner="p2">Opponent</button>
+                                    </div>
+                                    <div class="flex justify-center items-center">
+                                        <span class="w-20 text-gray-300 font-bold uppercase text-xs tracking-widest">Game 3</span>
+                                        <button class="g-btn border border-gray-700 px-6 py-2 text-xs text-gray-400 hover:border-cyan-400 mx-2 clip-edge" data-game="3" data-winner="p1">You</button>
+                                        <button class="g-btn border border-gray-700 px-6 py-2 text-xs text-gray-400 hover:border-cyan-400 clip-edge" data-game="3" data-winner="p2">Opponent</button>
+                                    </div>
+                                </div>
+
+                                <div id="match-status" class="bg-black text-center py-4 text-gray-400 tracking-widest uppercase text-xs border border-gray-800">Match in progress</div>
+                                
+                                <!-- Chat Engine -->
+                                <div class="mt-6 border border-gray-800 bg-black">
+                                    <div class="flex justify-between p-3 border-b border-gray-800 bg-gray-900/50">
+                                        <span class="text-cyan-400 font-bold uppercase tracking-widest text-xs">Match Comms</span>
+                                        <button class="text-yellow-500 border border-yellow-500/50 px-3 py-1 text-[10px] uppercase hover:bg-yellow-500/20 tracking-widest">Request Judge</button>
+                                    </div>
+                                    <div id="chat-history" class="h-48 overflow-y-auto p-4 space-y-3">
+                                        <!-- Messages load here -->
+                                    </div>
+                                    <div class="flex border-t border-gray-800">
+                                        <input type="text" id="chat-msg-input" placeholder="Encrypt message..." class="flex-1 bg-transparent text-white p-3 text-sm focus:outline-none font-mono">
+                                        <button id="send-msg-btn" class="bg-cyan-900/40 border-l border-gray-800 text-cyan-400 px-6 font-bold uppercase text-xs hover:bg-cyan-500 hover:text-black transition-colors tracking-widest">Send</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="battle-team" class="mt-8"></div>
+
+                            <!-- Top Cut Graph -->
+                            <div id="player-bracket-container" class="mt-8"></div>
+                        </div>
+
+                        <!-- Drop Zone -->
+                        <div id="drop-tab" class="page-tab">
+                            <div class="cyber-box p-6 border-l-4 border-l-red-500 max-w-2xl">
+                                <h3 class="text-2xl font-bold text-red-500 mb-2 uppercase tracking-widest">Danger Zone</h3>
+                                <p id="drop-status" class="text-gray-400 mb-6 text-sm uppercase tracking-widest">Dropping from the tournament cannot be undone.</p>
+                                <button id="drop-btn" onclick="dropFromTournament()" class="bg-red-900/40 border border-red-500 text-red-500 w-full py-3 font-bold uppercase tracking-widest hover:bg-red-500 hover:text-black transition-colors clip-edge">Initiate Drop Sequence</button>
+                            </div>
+                        </div>
+                    </div>
+                </div> <!-- End Active View Content -->
+            </div>
+        </div>
+    </div>
+    
+    <script src="js/app.js"></script>
+</body>
+</html>

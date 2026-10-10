@@ -1,0 +1,59 @@
+body { -webkit-font-smoothing: antialiased; background-color: #050505; font-family: 'Chakra Petch', sans-serif; }
+.cyber-bg { position: relative; background-color: #050505; background-image: linear-gradient(to right, rgba(0, 243, 255, 0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(0, 243, 255, 0.03) 1px, transparent 1px); background-size: 40px 40px; }
+.cyber-bg::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(circle at 50% 0%, rgba(0, 243, 255, 0.1) 0%, transparent 50%); pointer-events: none; z-index: 0; }
+.neon-text-cyan { text-shadow: 0 0 10px rgba(0, 243, 255, 0.8), 0 0 20px rgba(0, 243, 255, 0.4); color: #00f3ff; }
+.neon-text-red { text-shadow: 0 0 10px rgba(255, 0, 60, 0.8), 0 0 20px rgba(255, 0, 60, 0.4); color: #ff003c; }
+.neon-text-gold { text-shadow: 0 0 10px rgba(255, 215, 0, 0.8), 0 0 20px rgba(255, 215, 0, 0.4); color: #ffd700; }
+.clip-edge { clip-path: polygon(15px 0, 100% 0, 100% calc(100% - 15px), calc(100% - 15px) 100%, 0 100%, 0 15px); }
+.clip-edge-reverse { clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%, 15px 100%, 0 calc(100% - 15px)); }
+.cyber-box { background: rgba(10, 10, 12, 0.85); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
+.cyber-box-cyan { border: 1px solid rgba(0, 243, 255, 0.4); box-shadow: 0 0 15px rgba(0, 243, 255, 0.15), inset 0 0 20px rgba(0, 243, 255, 0.05); }
+.cyber-box-red { border: 1px solid rgba(255, 0, 60, 0.4); box-shadow: 0 0 15px rgba(255, 0, 60, 0.15), inset 0 0 20px rgba(255, 0, 60, 0.05); }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #050505; border-left: 1px solid #111; }
+::-webkit-scrollbar-thumb { background: #00f3ff; border-radius: 0; box-shadow: 0 0 10px #00f3ff; }
+::-webkit-scrollbar-thumb:hover { background: #fff; }
+@keyframes pulse-neon { 0% { box-shadow: 0 0 10px rgba(255,0,60,0.4); } 50% { box-shadow: 0 0 25px rgba(255,0,60,0.8); } 100% { box-shadow: 0 0 10px rgba(255,0,60,0.4); } }
+.live-pulse { animation: pulse-neon 2s infinite; }
+
+/* In-Page Navigation Buttons Styling */
+.page-nav-btn {
+    background: transparent;
+    border: 1px solid #333;
+    color: #888;
+    padding: 10px 20px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+}
+.page-nav-btn:hover { border-color: #00f3ff; color: #fff; }
+.page-nav-btn.active {
+    background: rgba(0, 243, 255, 0.1);
+    border-color: #00f3ff;
+    color: #00f3ff;
+    box-shadow: inset 0 0 10px rgba(0,243,255,0.2);
+}
+.danger-text { color: #ff003c; border-color: #ff003c; }
+.danger-text:hover, .danger-text.active { 
+    background: rgba(255, 0, 60, 0.1); 
+    border-color: #ff003c;
+    color: #ff003c;
+    box-shadow: inset 0 0 10px rgba(255,0,60,0.2);
+}
+
+/* Tab Management Logic */
+.page-tab { display: none; }
+.page-tab.active { display: block; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Game Selection Buttons */
+.g-btn.selected { 
+    background: rgba(0, 243, 255, 0.15); 
+    border-color: #00f3ff; 
+    color: #00f3ff; 
+    font-weight: bold;
+    box-shadow: inset 0 0 10px rgba(0, 243, 255, 0.2);
+}
