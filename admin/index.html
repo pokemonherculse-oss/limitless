@@ -46,7 +46,7 @@
 
         <!-- Dashboard -->
         <section id="dashboard" class="view-section">
-            <h2 class="text-4xl font-bold text-white mb-6 uppercase tracking-wider">Admin Hub</h2>
+            <div class="flex items-center justify-between gap-3 mb-6"><h2 class="text-4xl font-bold text-white uppercase tracking-wider">Admin Hub</h2><a href="/api/export" download="limitless.xlsx" class="px-4 py-2 border border-pokeblue rounded-lg text-pokeblue font-bold text-sm uppercase hover:bg-blue-900/30">Download Excel</a></div>
             <div class="grid grid-cols-3 gap-6">
                 <div class="bg-dark/80 backdrop-blur p-6 rounded-tr-2xl rounded-bl-2xl border-l-4 border-pokeblue shadow-lg"><h3 class="text-pokeblue uppercase text-sm font-bold tracking-widest">Registered Trainers</h3><p class="text-5xl font-bold text-white mt-2" id="dash-players">0</p></div>
                 <div class="bg-dark/80 backdrop-blur p-6 rounded-tr-2xl rounded-bl-2xl border-l-4 border-pokered shadow-lg"><h3 class="text-pokered uppercase text-sm font-bold tracking-widest">Active Circuits</h3><p class="text-5xl font-bold text-white mt-2" id="dash-active">0</p></div>
@@ -145,6 +145,7 @@
             <div id="chat-actions" class="hidden p-4 border-t border-gray-700 flex flex-wrap gap-2 items-center"></div>
         </div>
     </div>
+    <script src="/shared/db-client.js?v=registration-fix-20261010"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
