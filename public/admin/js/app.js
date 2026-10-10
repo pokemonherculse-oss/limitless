@@ -179,37 +179,12 @@ function isPending(m, phase) {
 }
 function pendingIn(round) { return round ? round.matches.filter(m => isPending(m, round.phase)).length : 0; }
 
-function recomputeStandings() {
-    const data = db.activeTournamentData;
-    const pts = {};
-    data.forEach(d => pts[d.playerId] = d.points);
-    data.forEach(d => d.tb = (d.opponents || []).reduce((s, o) => s + (pts[o] || 0), 0)); // opponents' points (tiebreak)
-    data.sort((a, b) => b.points - a.points || b.wins - a.wins || (b.tb || 0) - (a.tb || 0));
-    data.forEach((d, i) => d.position = i + 1);
-}
-
-// Returns false while matches are unfinished. Scores each Swiss round exactly once.
+// Live standings, round scoring and tie-breaks are computed server-side
+// after each accepted match result. The browser must never score twice.
+function recomputeStandings() {}
 function processRoundScores(t) {
-    const round = lastRound(t);
-    if (!round) return true;
-    if (pendingIn(round) > 0) return false;
-
-    if (round.phase === 'SWISS' && !round.processed) {
-        round.matches.forEach(m => {
-            const d1 = db.activeTournamentData.find(x => x.playerId === m.p1);
-            const d2 = m.p2 ? db.activeTournamentData.find(x => x.playerId === m.p2) : null;
-            if (m.winner === 'p1') { if (d1) { d1.wins++; d1.points += 3; } if (d2) d2.losses++; }
-            else if (m.winner === 'p2') { if (d1) d1.losses++; if (d2) { d2.wins++; d2.points += 3; } }
-            else if (m.winner === 'noshow') { if (d1) d1.losses++; if (d2) d2.losses++; }   // neither checked in: double loss
-            else if (m.winner === 'draw') {
-                if (d1) { d1.draws++; d1.points += 1; }
-                if (d2) { d2.draws++; d2.points += 1; }
-            }
-        });
-        round.processed = true;
-        recomputeStandings();
-    }
-    return true;
+    const round=lastRound(t);
+    return !round || pendingIn(round)===0;
 }
 
 // Finds a full set of pairings with no rematches (backtracking); falls back to fewest rematches.
@@ -286,36 +261,14 @@ function getBracketSeeds(n) {
 }
 const bracketLabel = n => n === 2 ? 'Finals' : (n === 4 ? 'Semi-Finals' : `Top ${n}`);
 
-window.startTournament = function (id) {
-    reloadDB();
-    const t = db.tournaments.find(x => x.id === id);
-    if (!t || t.status !== 'UPCOMING') return;
-    if (db.tournaments.some(x => x.status === 'ACTIVE')) return alert("A tournament is already active!");
-
-    const roster = (t.registeredPlayers || []).filter(pid => db.players.some(p => p.id === pid));
-    if (roster.length < 2) return alert("At least 2 trainers must be registered to begin.");
-    if (!confirm(`Begin "${t.name}" with ${roster.length} trainers? Registration will be locked.`)) return;
-
-    reloadDB();   // pick up anyone who registered while the dialog was open
-    const t2 = db.tournaments.find(x => x.id === id);
-    const finalRoster = (t2.registeredPlayers || []).filter(pid => db.players.some(p => p.id === pid));
-    if (finalRoster.length < 2) return alert("At least 2 trainers must be registered to begin.");
-
-    t2.registeredPlayers = finalRoster;
-    t2.status = 'ACTIVE';
-    t2.registrationOpen = false;   // registration locks when the admin starts the event
-    t2.phase = 'SWISS';
-    t2.currentRound = 0;          // admin starts every round manually
-    t2.pairings = [];
-    t2.roundEndTime = 0;
-
-    db.activeTournamentData = finalRoster.map((playerId, i) => ({
-        tournamentId: t2.id, playerId, points: 0, wins: 0, losses: 0, draws: 0, position: i + 1, opponents: [], hadBye: false, tb: 0
-    }));
-
-    activeSubTab = 'pairings';
-    saveDB();
-    switchTab('active', document.querySelectorAll('.nav-btn')[3]);
+window.startTournament = async function (id) {
+    const t = db.tournaments.find(x=>String(x.id)===String(id));
+    if (!t || !confirm(`Begin "${t.name}" and lock registrations?`)) return;
+    try {
+        await LimitlessStore.serverAction('/api/tournament/advance',{action:'start',tournamentId:id});
+        activeSubTab='pairings';
+        switchTab('active',document.querySelectorAll('.nav-btn')[3]);
+    } catch (e) { alert(e.message); }
 };
 
 window.deleteTournament = function (id) {
@@ -329,56 +282,38 @@ window.deleteTournament = function (id) {
     renderHistory();
 };
 
-window.startNextRound = function () {
-    reloadDB();
-    const t = getActive();
-    if (!t || t.phase !== 'SWISS') return;
-    if (!processRoundScores(t)) return alert("Matches are still in progress! All matches must be finished.");
-    if (db.activeTournamentData.filter(d => !d.dropped).length < 2) { saveDB(); return alert("Fewer than 2 trainers remain in the tournament."); }
-    if (t.currentRound >= t.totalRounds) { saveDB(); renderActiveTournament(); return alert("All Swiss rounds are done. Start the Top Cut."); }
-    t.currentRound++;
-    t.roundEndTime = Date.now() + (t.roundTime * 60 * 1000);
-    generateSwissPairing(t);
-    saveDB();
-    renderActiveTournament();
+window.startNextRound = async function () {
+    const t=getActive(); if (!t) return;
+    try {
+        await LimitlessStore.serverAction('/api/tournament/advance',{action:'nextSwiss',tournamentId:t.id});
+        activeSubTab='pairings'; renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
 // Admin result override for a pending match (or a drawn bracket match).
-window.adminSetWinner = function (matchId, result) {
-    reloadDB();
-    const t = getActive();
-    const round = lastRound(t);
-    if (!round || round.processed) return;
-    if (result === 'draw' && round.phase === 'TOP_CUT') return alert("Bracket matches need a winner.");
-    const m = round.matches.find(x => x.matchId === matchId);
-    if (m && m.p2 !== null && isPending(m, round.phase)) {
-        m.winner = result;
-        saveDB();
+window.adminSetWinner = async function(matchId,result) {
+    const t=getActive(); if(!t) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{action:'result',tournamentId:t.id,matchId,result});
         renderActiveTournament();
-    }
+    } catch(e) { alert(e.message); }
 };
 window.adminForceDraw = function (matchId) { adminSetWinner(matchId, 'draw'); };
 
-window.adminResetMatch = function (matchId) {
-    reloadDB();
-    const t = getActive();
-    const round = lastRound(t);
-    if (!round || round.processed) return;
-    const m = round.matches.find(x => x.matchId === matchId);
-    if (!m || m.p2 === null || !m.winner) return;
-    if (!confirm("Reset this match result?")) return;
-    reloadDB();
-    const m2 = lastRound(getActive())?.matches.find(x => x.matchId === matchId);
-    if (m2) { m2.winner = null; m2.forfeit = false; m2.noShow = false; m2.checkInDeadline = null; saveDB(); renderActiveTournament(); }
+window.adminResetMatch = async function (matchId) {
+    const t=getActive(); if(!t || !confirm('Reset result and restart this match check-in timer?')) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{action:'reset',tournamentId:t.id,matchId});
+        renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
-window.adminAddTime = function (minutes) {
-    reloadDB();
-    const t = getActive();
-    if (!t || !t.pairings || t.pairings.length === 0) return;
-    t.roundEndTime = Math.max(Date.now(), t.roundEndTime || 0) + minutes * 60 * 1000;
-    saveDB();
-    renderActiveTournament();
+window.adminAddTime = async function(minutes) {
+    const t=getActive(); if(!t) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{action:'addTime',tournamentId:t.id,minutes});
+        renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
 // Admin opens / closes registration for an upcoming tournament. Player app must only allow
@@ -467,60 +402,20 @@ function resolveCheckIns() {
     return true;
 }
 
-window.startTopCut = function () {
-    reloadDB();
-    const t = getActive();
-    if (!t || t.phase !== 'SWISS') return;
-    if (!processRoundScores(t)) return alert("Swiss Matches are still in progress!");
-    if (t.currentRound < t.totalRounds) { saveDB(); return alert("Finish all Swiss rounds first."); }
-
-    const maxCut = t.topCut;
-    const contenders = db.activeTournamentData.filter(d => !d.dropped);
-    const activeP = contenders.length;
-    if (activeP < 2) { saveDB(); return alert("Fewer than 2 trainers remain in the tournament."); }
-    let actualCut = 2;
-    [2, 4, 8, 16, 32, 64].forEach(c => { if (c <= activeP && c <= maxCut) actualCut = c; });
-
-    const cutPlayers = contenders.slice(0, actualCut).map(d => d.playerId);
-    const roster = getBracketSeeds(actualCut).map(s => cutPlayers[s - 1]);
-
-    const matches = [];
-    for (let i = 0; i < roster.length; i += 2) {
-        matches.push({ matchId: 'tc_' + Date.now() + '_' + i, p1: roster[i], p2: roster[i + 1], p1CheckIn: false, p2CheckIn: false, checkInDeadline: newDeadline(t), winner: null });
-    }
-    t.phase = 'TOP_CUT';
-    t.topCutRoundStr = bracketLabel(actualCut);
-    t.pairings.push({ round: t.topCutRoundStr, phase: 'TOP_CUT', matches });
-    t.roundEndTime = Date.now() + (t.roundTime * 60 * 1000);
-
-    activeSubTab = 'bracket';
-    saveDB();
-    renderActiveTournament();
+window.startTopCut = async function () {
+    const t=getActive(); if (!t) return;
+    try {
+        await LimitlessStore.serverAction('/api/tournament/advance',{action:'topCut',tournamentId:t.id});
+        activeSubTab='bracket'; renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
-window.startNextBracketRound = function () {
-    reloadDB();
-    const t = getActive();
-    if (!t || t.phase !== 'TOP_CUT') return;
-    if (!processRoundScores(t)) return alert("Bracket matches are still in progress!");
-
-    const last = lastRound(t);
-    if (last.matches.length < 2) return;
-    const winners = last.matches.map(m => m.winner === 'p1' ? m.p1 : m.p2);
-
-    const nextMatches = [];
-    for (let i = 0; i < winners.length; i += 2) {
-        nextMatches.push({ matchId: 'tc_' + Date.now() + '_' + i, p1: winners[i], p2: winners[i + 1], p1CheckIn: false, p2CheckIn: false, checkInDeadline: newDeadline(t), winner: null });
-    }
-    // a player who dropped after winning forfeits the next match
-    const isDropped = id => db.activeTournamentData.some(d => d.playerId === id && d.dropped);
-    nextMatches.forEach(m => { const a = isDropped(m.p1), b = isDropped(m.p2); if (a && !b) m.winner = 'p2'; else if (b && !a) m.winner = 'p1'; });
-    t.topCutRoundStr = bracketLabel(winners.length);
-    t.pairings.push({ round: t.topCutRoundStr, phase: 'TOP_CUT', matches: nextMatches });
-    t.roundEndTime = Date.now() + (t.roundTime * 60 * 1000);
-
-    saveDB();
-    renderActiveTournament();
+window.startNextBracketRound = async function () {
+    const t=getActive(); if (!t) return;
+    try {
+        await LimitlessStore.serverAction('/api/tournament/advance',{action:'nextBracket',tournamentId:t.id});
+        activeSubTab='bracket'; renderActiveTournament();
+    } catch(e) { alert(e.message); }
 };
 
 // Final order: topIds first (champion, runner-up), then everyone else by how late they were
@@ -573,37 +468,29 @@ function archiveTournament(t, order) {
 }
 
 // Normal finish: final match reported.
-window.endTournament = function () {
-    reloadDB();
-    const activeT = getActive();
-    if (!activeT || activeT.phase !== 'TOP_CUT') return;
-    const finalRound = lastRound(activeT);
-    const finalMatch = finalRound.matches[0];
-    if (finalRound.matches.length !== 1 || (finalMatch.winner !== 'p1' && finalMatch.winner !== 'p2'))
-        return alert("The final match result has not been reported yet!");
-    if (!confirm("Conclude Tournament? Final placements will be permanently archived.")) return;
-
-    reloadDB();
-    const t = getActive();
-    if (!t) return;
-    const fm = lastRound(t).matches[0];
-    const championId = fm.winner === 'p1' ? fm.p1 : fm.p2;
-    const runnerUpId = fm.winner === 'p1' ? fm.p2 : fm.p1;
-    archiveTournament(t, buildFinalOrder(t, [championId, runnerUpId]));
+window.endTournament = async function () {
+    const t=getActive(); if(!t) return;
+    const last=lastRound(t);
+    if(!last || last.matches.length!==1 || !['p1','p2'].includes(last.matches[0].winner)) {
+        return alert('Report the final match winner first.');
+    }
+    if(!confirm('Conclude tournament? Winner, runner-up and final positions will be permanently saved.')) return;
+    try {
+        await LimitlessStore.serverAction('/api/tournament/finish',{tournamentId:t.id,force:false});
+        activeSubTab='pairings';
+        switchTab('history',document.querySelectorAll('.nav-btn')[4]);
+    } catch(e) { alert('Tournament not ended: '+e.message); }
 };
 
 // Admin can end the event at ANY time. Placements = current standings / bracket progress.
-window.forceEndTournament = function () {
-    reloadDB();
-    if (!getActive()) return;
-    if (!confirm("END this tournament now? It will be archived using the CURRENT standings (#1 is champion). This cannot be undone.")) return;
-    reloadDB();
-    const t = getActive();
-    if (!t) return;
-    processRoundScores(t);                       // count the last Swiss round if it is fully reported
-    const order = buildFinalOrder(t, []);
-    if (order.length === 0) return;
-    archiveTournament(t, order);
+window.forceEndTournament = async function () {
+    const t=getActive(); if(!t) return;
+    if(!confirm('End this tournament NOW? Current round-aware standings will decide champion and runner-up unless the final already has a confirmed winner.')) return;
+    try {
+        await LimitlessStore.serverAction('/api/tournament/finish',{tournamentId:t.id,force:true});
+        activeSubTab='pairings';
+        switchTab('history',document.querySelectorAll('.nav-btn')[4]);
+    } catch(e) { alert('Tournament not ended: '+e.message); }
 };
 
 // ==========================================
@@ -786,7 +673,7 @@ function renderActiveTournament() {
         let tbodyHtml = '';
         db.activeTournamentData.forEach(d => {
             const rankColor = d.position === 1 ? 'text-pokegold' : (d.position === 2 ? 'text-gray-300' : 'text-pokered');
-            tbodyHtml += `<tr class="hover:bg-gray-800/50 transition-colors"><td class="px-6 py-4 font-bold ${rankColor} text-xl">${d.position}</td><td class="px-6 py-4 font-bold text-white tracking-wide">${esc(nameOf(d.playerId))}${d.dropped ? ' <span class="text-xs text-red-500 tracking-widest">DROPPED</span>' : ''}</td><td class="px-6 py-4 font-mono text-lg text-gray-300">${d.points} Pts (${d.wins}-${d.losses}-${d.draws})</td></tr>`;
+            tbodyHtml += `<tr class="hover:bg-gray-800/50 transition-colors"><td class="px-6 py-4 font-bold ${rankColor} text-xl">${d.position}</td><td class="px-6 py-4 font-bold text-white tracking-wide">${esc(nameOf(d.playerId))}${d.dropped ? ' <span class="text-xs text-red-500 tracking-widest">DROPPED</span>' : ''}</td><td class="px-6 py-4 font-mono text-lg text-gray-300">${d.points} Pts (${d.wins}-${d.losses}-${d.draws})<div class="text-xs text-gray-500 mt-1">Opp pts: ${d.tb || 0} · Rounds: ${esc((d.roundResults || []).join(' · ') || 'Not started')}</div></td></tr>`;
         });
         if (tbody.innerHTML !== tbodyHtml) tbody.innerHTML = tbodyHtml;
     }
@@ -935,8 +822,9 @@ window.openMatchChat = function (matchId) {
     if (!m) return;
     chatMatchId = matchId;
     if (m.report && m.report.status === 'OPEN' && !m.report.adminJoined) {
-        m.report.adminJoined = true;
-        saveDB();
+        LimitlessStore.serverAction('/api/match/action',{
+            action:'joinReport',tournamentId:findMatch(matchId).t.id,matchId
+        }).catch(e=>console.warn('Report joined status not saved:',e.message));
     }
     $id('chat-modal').classList.remove('hidden');
     renderChatModal(true);
@@ -1014,24 +902,19 @@ $id('chat-form').addEventListener('submit', function (e) {
     LimitlessStore.chat(chatMatchId, text).catch(err => alert('Chat not sent: ' + err.message));
 });
 
-window.resolveReport = function (matchId, result) {
-    reloadDB();
-    const { t, round, m } = findMatch(matchId);
-    if (!m || !m.report) return;
-    let resolution = 'Report dismissed by admin.';
-    if (result !== 'dismiss') {
-        if (round.processed || round !== lastRound(t)) return alert('That round is already scored.');
-        if (result === 'draw' && round.phase === 'TOP_CUT') return alert('Bracket matches need a winner.');
-        if (m.winner && m.winner !== result && !confirm('This match already has a result. Override it?')) return;
-        m.winner = result; m.forfeit = false; m.noShow = false;
-        resolution = result === 'draw' ? 'Admin ruled the match a draw.'
-            : `Admin ruled: ${nameOf(result === 'p1' ? m.p1 : m.p2)} wins.`;
-    }
-    m.report.status = 'RESOLVED';
-    m.report.resolution = resolution;
-    m.report.resolvedTs = Date.now();
-    saveDB();
-    renderCurrent();
+window.resolveReport = async function(matchId,result) {
+    const {t,round,m}=findMatch(matchId);
+    if(!t || !m || !m.report) return;
+    if(result!=='dismiss' && m.winner && m.winner!==result && !confirm('Override the previously reported winner?')) return;
+    try {
+        await LimitlessStore.serverAction('/api/match/action',{
+            action:'resolveReport',tournamentId:t.id,matchId,result,
+            resolution:result==='dismiss' ? 'Report dismissed by admin.'
+                : result==='draw' ? 'Admin ruled the match a draw.'
+                : `Admin ruled: ${nameOf(result==='p1'?m.p1:m.p2)} wins.`
+        });
+        renderCurrent();
+    } catch(e) { alert(e.message); }
 };
 
 renderReportAlerts();
