@@ -227,50 +227,50 @@ function setHtmlKeepInputs(el, html) {
 // ==========================================
 // 4. TOURNAMENT REGISTRATION (Tournament Area, when no tour is live)
 // ==========================================
-window.registerForTournament = function (id) {
+let registrationBusy = false;
+window.registerForTournament = async function (id) {
+    if (registrationBusy) return;
     const ign = ($('ign-' + id)?.value || '').trim();
     const teamUrl = ($('team-' + id)?.value || '').trim();
-    if (!ign) return alert("Enter your in-game name.");
+    if (!ign) return alert('Enter your in-game name.');
     const teamText = ($('team-text-' + id)?.value || '').trim();
     let teamParsed = [];
     if (teamText) {
         const r = parseShowdown(teamText);
-        if (r.errors.length) return alert("Fix your team first:\n- " + r.errors.join("\n- "));
+        if (r.errors.length) return alert('Fix your team first:\n- ' + r.errors.join('\n- '));
         teamParsed = r.team;
     }
-    if (ign.length > 30) return alert("In-game name is too long (max 30 characters).");
+    if (ign.length > 30) return alert('In-game name is too long (max 30 characters).');
     if (teamUrl) {
         try { const u = new URL(teamUrl); if (!/^https?:$/.test(u.protocol)) throw 0; }
-        catch (e) { return alert("Team sheet must be a link starting with http:// or https://"); }
+        catch (e) { return alert('Team sheet must be a link starting with http:// or https://'); }
     }
-
-    reloadDB();
-    if (!getMe()) return logout();
-    const t = db.tournaments.find(x => x.id === id);
-    if (!t) { alert("This tournament no longer exists."); return renderCurrent(); }
-    if (t.status !== 'UPCOMING') { alert("Registration is closed for this tournament."); return renderCurrent(); }
-
-    t.registeredPlayers = t.registeredPlayers || [];
-    if (!t.registeredPlayers.includes(loggedInPlayerId)) t.registeredPlayers.push(loggedInPlayerId);
-    t.entries = t.entries || {};
-    t.entries[loggedInPlayerId] = { ign, teamUrl, teamText, team: teamParsed, updatedAt: Date.now() };
-    saveDB();
-    renderCurrent();
+    if (!loggedInPlayerId || !getMe()) return logout();
+    registrationBusy = true;
+    try {
+        // Single atomic server operation; never replay other players' entries.
+        await LimitlessStore.registerTournament(id, {
+            ign, teamUrl, teamText, team: teamParsed, updatedAt: Date.now()
+        });
+        renderCurrent();
+    } catch (error) {
+        alert('Registration could not be saved: ' + error.message);
+        await LimitlessStore.refresh(true);
+    } finally { registrationBusy = false; }
 };
-window.enlistTournament = window.registerForTournament;   // kept for older markup
+window.enlistTournament = window.registerForTournament;
 
-window.withdrawTournament = function (id) {
-    reloadDB();
-    const t = db.tournaments.find(x => x.id === id);
-    if (!t || t.status !== 'UPCOMING') { alert("Registration is closed for this tournament."); return renderCurrent(); }
-    if (!confirm(`Withdraw from "${t.name}"?`)) return;
-    reloadDB();
-    const t2 = db.tournaments.find(x => x.id === id);
-    if (!t2 || t2.status !== 'UPCOMING') return renderCurrent();
-    t2.registeredPlayers = (t2.registeredPlayers || []).filter(pid => pid !== loggedInPlayerId);
-    if (t2.entries) delete t2.entries[loggedInPlayerId];
-    saveDB();
-    renderCurrent();
+window.withdrawTournament = async function (id) {
+    if (registrationBusy) return;
+    if (!confirm('Withdraw from this tournament?')) return;
+    registrationBusy = true;
+    try {
+        await LimitlessStore.withdrawTournament(id);
+        renderCurrent();
+    } catch (error) {
+        alert('Withdrawal could not be saved: ' + error.message);
+        await LimitlessStore.refresh(true);
+    } finally { registrationBusy = false; }
 };
 
 function renderRegistration() {
