@@ -100,12 +100,14 @@
                         
                         <!-- Pairings -->
                         <div id="pairings-tab" class="page-tab active">
+                            <p id="checkin-deadline-pairings" class="text-cyan-400 font-mono text-sm mb-3" aria-live="polite"></p>
                             <div id="rounds-nav" class="flex gap-2 mb-6 border-b border-gray-800 pb-4"></div>
                             <div id="pairings-list" class="space-y-2"></div>
                         </div>
 
                         <!-- Leaderboard -->
                         <div id="leaderboard-tab" class="page-tab">
+                            <p class="text-xs text-gray-400 mb-3">Ties: match points → opponent points → wins → later Swiss rounds. W=win, L=loss, D=draw, B=bye, N=no-show.</p>
                             <table class="w-full text-left bg-black border border-gray-800">
                                 <thead>
                                     <tr class="bg-cyan-900/20 text-cyan-400 tracking-widest text-xs uppercase border-b border-gray-800">
@@ -132,6 +134,7 @@
                                     </div>
                                 </div>
                                 
+                                <p id="checkin-deadline" class="mb-4 text-cyan-300 text-xs font-mono text-center" aria-live="polite"></p>
                                 <div class="flex gap-4 mb-6">
                                     <div class="flex-1 bg-black p-4 border border-gray-800 text-center relative overflow-hidden">
                                         <div class="absolute inset-0 bg-cyan-900/10 pointer-events-none"></div>
@@ -207,7 +210,7 @@
         </div>
     </div>
     
-    <script src="/shared/db-client.js?v=atomic-registration-20261010"></script>
-    <script src="js/app.js?v=atomic-registration-20261010"></script>
+    <script src="/shared/db-client.js?v=tournament-v3"></script>
+    <script src="js/app.js?v=tournament-v3"></script>
 </body>
 </html>
