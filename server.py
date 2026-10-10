@@ -1,8 +1,4 @@
-"""LIMITLESS: single-process HTTP server backed by an Excel workbook.
 
-Deploy this application from a GitHub repository to a persistent Python/Docker server.
-GitHub Pages alone cannot execute backend code or modify a workbook.
-"""
 from __future__ import annotations
 
 import copy
